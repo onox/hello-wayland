@@ -1,4 +1,4 @@
-WAYLAND_FLAGS = `pkg-config wayland-client --cflags --libs`
+WAYLAND_FLAGS = `pkg-config wayland-client wayland-cursor --cflags --libs`
 WAYLAND_PROTOCOLS_DIR = `pkg-config wayland-protocols --variable=pkgdatadir`
 WAYLAND_SCANNER = `pkg-config --variable=wayland_scanner wayland-scanner`
 CFLAGS ?= -std=c11 -Wall -Werror -g

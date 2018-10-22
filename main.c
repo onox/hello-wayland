@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include <wayland-client-protocol.h>
+#include <wayland-cursor.h>
 #ifdef __linux__
 #include <linux/input-event-codes.h>
 #elif __FreeBSD__
@@ -24,9 +25,13 @@ static bool running = true;
 static struct wl_shm *shm = NULL;
 static struct wl_compositor *compositor = NULL;
 static struct xdg_wm_base *xdg_wm_base = NULL;
+static struct wl_seat *seat = NULL;
 
 static void *shm_data = NULL;
 static struct xdg_toplevel *xdg_toplevel = NULL;
+
+static struct wl_cursor_image *cursor_image = NULL;
+static struct wl_surface *cursor_surface = NULL;
 
 static void noop() {
 	// This space intentionally left blank
@@ -51,6 +56,12 @@ static const struct xdg_toplevel_listener xdg_toplevel_listener = {
 	.close = xdg_toplevel_handle_close,
 };
 
+static void pointer_handle_enter(void *data, struct wl_pointer *pointer,
+		uint32_t serial, struct wl_surface *surface, int32_t sx, int32_t sy) {
+	wl_pointer_set_cursor(pointer, serial, cursor_surface,
+		cursor_image->hotspot_x, cursor_image->hotspot_y);
+}
+
 static void pointer_handle_button(void *data, struct wl_pointer *pointer,
 		uint32_t serial, uint32_t time, uint32_t button, uint32_t state) {
 	struct wl_seat *seat = data;
@@ -61,7 +72,7 @@ static void pointer_handle_button(void *data, struct wl_pointer *pointer,
 }
 
 static const struct wl_pointer_listener pointer_listener = {
-	.enter = noop,
+	.enter = pointer_handle_enter,
 	.leave = noop,
 	.motion = noop,
 	.button = pointer_handle_button,
@@ -85,8 +96,7 @@ static void handle_global(void *data, struct wl_registry *registry,
 	if (strcmp(interface, wl_shm_interface.name) == 0) {
 		shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
 	} else if (strcmp(interface, wl_seat_interface.name) == 0) {
-		struct wl_seat *seat =
-			wl_registry_bind(registry, name, &wl_seat_interface, 1);
+		seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
 		wl_seat_add_listener(seat, &seat_listener, NULL);
 	} else if (strcmp(interface, wl_compositor_interface.name) == 0) {
 		compositor = wl_registry_bind(registry, name,
@@ -145,10 +155,23 @@ int main(int argc, char *argv[]) {
 	wl_display_dispatch(display);
 	wl_display_roundtrip(display);
 
-	if (shm == NULL || compositor == NULL || xdg_wm_base == NULL) {
+	if (shm == NULL || compositor == NULL || xdg_wm_base == NULL ||
+			seat == NULL) {
 		fprintf(stderr, "no wl_shm, wl_compositor or xdg_wm_base support\n");
 		return EXIT_FAILURE;
 	}
+
+	struct wl_cursor_manager *cursor_manager =
+		wl_cursor_manager_create(display);
+	struct wl_cursor_theme *cursor_theme = wl_cursor_manager_get_theme(
+		cursor_manager, seat, WL_CURSOR_DEVICE_TYPE_POINTER, 1);
+	struct wl_cursor *cursor = wl_cursor_theme_get_cursor(cursor_theme, NULL);
+	cursor_image = cursor->images[0];
+	cursor_surface = wl_compositor_create_surface(compositor);
+	struct wl_buffer *cursor_buffer =
+		wl_cursor_image_get_buffer(cursor_image);
+	wl_surface_attach(cursor_surface, cursor_buffer, 0, 0);
+	wl_surface_commit(cursor_surface);
 
 	struct wl_buffer *buffer = create_buffer();
 	if (buffer == NULL) {
@@ -177,6 +200,10 @@ int main(int argc, char *argv[]) {
 	xdg_surface_destroy(xdg_surface);
 	wl_surface_destroy(surface);
 	wl_buffer_destroy(buffer);
+
+	wl_surface_destroy(cursor_surface);
+	wl_cursor_theme_destroy(cursor_theme);
+	wl_cursor_manager_destroy(cursor_manager);
 
 	return EXIT_SUCCESS;
 }
