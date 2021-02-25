@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 199309L
 #include <EGL/egl.h>
-#include <GLES2/gl2.h>
+#include <EGL/eglext.h>
+#include <GL/gl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,7 +189,15 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
-	egl_display = eglGetDisplay((EGLNativeDisplayType)display);
+	EGLAttrib display_attribs[] = {
+		EGL_NONE
+	};
+	egl_display = eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_EXT,
+		// not OK: wl_display@1: error 1: invalid arguments for wl_surface@6.attach
+//		EGL_DEFAULT_DISPLAY,
+		// OK:
+		display,
+		display_attribs);
 	if (egl_display == EGL_NO_DISPLAY) {
 		fprintf(stderr, "failed to create EGL display\n");
 		return EXIT_FAILURE;
@@ -200,6 +209,11 @@ int main(int argc, char *argv[]) {
 		return EXIT_FAILURE;
 	}
 
+	if (!eglBindAPI(EGL_OPENGL_API)) {
+		fprintf(stderr, "failed to bind GL API in EGL\n");
+		return EXIT_FAILURE;
+	}
+
 	EGLint count;
 	eglGetConfigs(egl_display, NULL, 0, &count);
 
@@ -208,7 +222,7 @@ int main(int argc, char *argv[]) {
 		EGL_RED_SIZE, 8,
 		EGL_GREEN_SIZE, 8,
 		EGL_BLUE_SIZE, 8,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
 		EGL_NONE,
 	};
 	EGLint n = 0;
@@ -221,10 +235,15 @@ int main(int argc, char *argv[]) {
 	EGLConfig egl_config = configs[0];
 
 	EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_CONTEXT_MAJOR_VERSION, 4,
+		EGL_CONTEXT_MINOR_VERSION, 2,
+		EGL_CONTEXT_FLAGS_KHR,
+		EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR | EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR,
+		EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+		EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_KHR, EGL_NO_RESET_NOTIFICATION,
 		EGL_NONE,
 	};
-	egl_context = eglCreateContext(egl_display, egl_config,
+	egl_context = eglCreateContext(egl_display, NULL,
 		EGL_NO_CONTEXT, context_attribs);
 
 	surface = wl_compositor_create_surface(compositor);
@@ -237,8 +256,7 @@ int main(int argc, char *argv[]) {
 
 	struct wl_egl_window *egl_window =
 		wl_egl_window_create(surface, width, height);
-	egl_surface = eglCreateWindowSurface(egl_display, egl_config,
-		(EGLNativeWindowType)egl_window, NULL);
+	egl_surface = eglCreatePlatformWindowSurface(egl_display, egl_config, egl_window, NULL);
 
 	wl_surface_commit(surface);
 	wl_display_roundtrip(display);
